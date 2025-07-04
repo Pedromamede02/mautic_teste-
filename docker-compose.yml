@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+
+  mautic:
+    image: mautic/mautic:v5
+    container_name: mautic
+    depends_on:
+      - db
+      - redis
+    restart: always
+    volumes:
+      - ./mautic:/var/www/html
+    environment:
+      - MAUTIC_DB_HOST=db
+      - MAUTIC_DB_USER=${MYSQL_USER}
+      - MAUTIC_DB_PASSWORD=${MYSQL_PASSWORD}
+      - MAUTIC_DB_NAME=${MYSQL_DATABASE}
+      - MAUTIC_RUN_CRON_JOBS=false
+    networks:
+      - mautic_net
+    expose:
+      - "7000"  # PHP-FPM
+
+  db:
+    image: mariadb:10.6
+    container_name: mautic_db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - mautic_net
+
+  redis:
+    image: redis:alpine
+    container_name: mautic_redis
+    restart: always
+    networks:
+      - mautic_net
+
+  cron:
+    image: mautic/mautic:v5
+    container_name: mautic_cron
+    depends_on:
+      - mautic
+    volumes:
+      - ./mautic:/var/www/html
+    entrypoint: |
+      /bin/bash -c "
+        while true; do
+          php bin/console mautic:segments:update --env=prod
+          php bin/console mautic:campaigns:update --env=prod
+          php bin/console mautic:campaigns:trigger --env=prod
+          php bin/console mautic:emails:send --env=prod
+          sleep 300
+        done
+      "
+    networks:
+      - mautic_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: mautic_nginx
+    depends_on:
+      - mautic
+    ports:
+      - "87:87"    # Porta HTTP customizada
+      - "448:448"  # Porta HTTPS customizada
+    volumes:
+      - ./nginx/mautic.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./mautic:/var/www/html:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - mautic_net
+
+  certbot:
+    image: certbot/certbot
+    container_name: mautic_certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: >
+      sh -c "sleep 30 && certbot certonly --webroot --webroot-path=/var/www/certbot --email seuemail@dominio.com --agree-tos --no-eff-email -d mautic.tconnect.pt"
+    depends_on:
+      - nginx
+    networks:
+      - mautic_net
+
+volumes:
+  db_data:
+
+networks:
+  mautic_net:
+    driver: bridge
