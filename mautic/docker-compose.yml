@@ -1,0 +1,56 @@
+version: '3.7'
+
+services:
+  mautic:
+    image: mautic/mautic
+    container_name: mautic
+    environment:
+      MAUTIC_DB_HOST: db
+      MAUTIC_DB_NAME: mautic
+      MAUTIC_DB_USER: mautic
+      MAUTIC_DB_PASSWORD: mauticpassword
+      MAUTIC_ENV: prod
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      - db
+    networks:
+      - mautic_network
+    expose:
+      - "80"  # Expondo a porta 80 para o Nginx dentro do Docker
+
+  db:
+    image: mysql:5.7
+    container_name: mautic_db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: mauticpassword
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - mautic_network
+
+  nginx:
+    image: nginx:latest
+    container_name: mautic_nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf  # Monta o arquivo nginx.conf
+      - mautic_data:/var/www/html  # Compartilha a pasta do Mautic com o Nginx
+    ports:
+      - "8080:80"  # Mapeia porta 8080 para HTTP
+      - "8443:443"  # Mapeia porta 8443 para HTTPS
+    depends_on:
+      - mautic
+    networks:
+      - mautic_network
+    command: ["/bin/bash", "-c", "nginx -g 'daemon off;'"]  # Comando para rodar o Nginx em primeiro plano
+
+volumes:
+  mautic_data:
+  db_data:
+
+networks:
+  mautic_network:
+    driver: bridge
